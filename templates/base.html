@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Trading Bot{% endblock %}</title>
+    
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <style>
+        .sidebar {
+            min-height: 100vh;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .sidebar .nav-link {
+            color: rgba(255,255,255,0.8);
+            border-radius: 8px;
+            margin: 2px 0;
+        }
+        .sidebar .nav-link:hover, .sidebar .nav-link.active {
+            color: white;
+            background-color: rgba(255,255,255,0.1);
+        }
+        .card {
+            border: none;
+            border-radius: 15px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .card-header {
+            border-radius: 15px 15px 0 0 !important;
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+            border: none;
+        }
+        .status-badge {
+            font-size: 0.8rem;
+            padding: 0.25rem 0.5rem;
+        }
+        .profit { color: #28a745; }
+        .loss { color: #dc3545; }
+        .pending { color: #ffc107; }
+        
+        .metric-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 15px;
+        }
+        
+        .btn-emergency {
+            background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);
+            border: none;
+            color: white;
+        }
+        
+        .btn-success-gradient {
+            background: linear-gradient(135deg, #56ab2f 0%, #a8e6cf 100%);
+            border: none;
+            color: white;
+        }
+    </style>
+</head>
+<body class="bg-light">
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Sidebar -->
+            <nav class="col-md-3 col-lg-2 d-md-block sidebar collapse">
+                <div class="position-sticky pt-3">
+                    <div class="text-center mb-4">
+                        <h4 class="text-white">
+                            <i class="fas fa-robot"></i> Trading Bot
+                        </h4>
+                        <small class="text-white-50">TradingView ↔ Binance</small>
+                    </div>
+                    
+                    <ul class="nav flex-column">
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'web.dashboard' %}active{% endif %}" href="{{ url_for('web.dashboard') }}">
+                                <i class="fas fa-tachometer-alt"></i> Dashboard
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'web.positions' %}active{% endif %}" href="{{ url_for('web.positions') }}">
+                                <i class="fas fa-chart-line"></i> Pozisyonlar
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'web.trades' %}active{% endif %}" href="{{ url_for('web.trades') }}">
+                                <i class="fas fa-exchange-alt"></i> İşlemler
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'web.signals' %}active{% endif %}" href="{{ url_for('web.signals') }}">
+                                <i class="fas fa-satellite-dish"></i> Sinyaller
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'web.settings' %}active{% endif %}" href="{{ url_for('web.settings') }}">
+                                <i class="fas fa-cog"></i> Ayarlar
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'web.risk_management' %}active{% endif %}" href="{{ url_for('web.risk_management') }}">
+                                <i class="fas fa-shield-alt"></i> Risk Yönetimi
+                            </a>
+                        </li>
+                    </ul>
+                    
+                    <hr class="text-white-50">
+                    
+                    <div class="text-center">
+                        <button class="btn btn-emergency btn-sm" onclick="emergencyStop()">
+                            <i class="fas fa-stop"></i> ACİL DURDUR
+                        </button>
+                    </div>
+                </div>
+            </nav>
+
+            <!-- Main content -->
+            <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4">
+                <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+                    <h1 class="h2">{% block page_title %}Dashboard{% endblock %}</h1>
+                    <div class="btn-toolbar mb-2 mb-md-0">
+                        <div class="btn-group me-2">
+                            <span class="badge bg-success" id="bot-status">Bot Aktif</span>
+                            <span class="badge bg-info" id="connection-status">Bağlı</span>
+                        </div>
+                    </div>
+                </div>
+
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                    {% if messages %}
+                        {% for category, message in messages %}
+                            <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show" role="alert">
+                                {{ message }}
+                                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                            </div>
+                        {% endfor %}
+                    {% endif %}
+                {% endwith %}
+
+                {% block content %}{% endblock %}
+            </main>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <script>
+        // Update status indicators
+        function updateStatus() {
+            fetch('/api/status')
+                .then(response => response.json())
+                .then(data => {
+                    const botStatus = document.getElementById('bot-status');
+                    const connectionStatus = document.getElementById('connection-status');
+                    
+                    if (data.bot_enabled && !data.emergency_stop) {
+                        botStatus.textContent = 'Bot Aktif';
+                        botStatus.className = 'badge bg-success';
+                    } else {
+                        botStatus.textContent = 'Bot Durduruldu';
+                        botStatus.className = 'badge bg-danger';
+                    }
+                    
+                    connectionStatus.textContent = 'Bağlı';
+                    connectionStatus.className = 'badge bg-info';
+                })
+                .catch(error => {
+                    console.error('Status update error:', error);
+                    document.getElementById('connection-status').textContent = 'Bağlantı Hatası';
+                    document.getElementById('connection-status').className = 'badge bg-danger';
+                });
+        }
+        
+        // Emergency stop function
+        function emergencyStop() {
+            if (confirm('Tüm pozisyonları kapatmak ve bot\'u durdurmak istediğinizden emin misiniz?')) {
+                fetch('/api/emergency-stop', { method: 'POST' })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            alert('Acil durdurma aktif edildi!');
+                            location.reload();
+                        } else {
+                            alert('Hata: ' + data.error);
+                        }
+                    })
+                    .catch(error => {
+                        alert('Acil durdurma sırasında hata oluştu!');
+                        console.error('Emergency stop error:', error);
+                    });
+            }
+        }
+        
+        // Update status every 30 seconds
+        setInterval(updateStatus, 30000);
+        updateStatus();
+    </script>
+    
+    {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,307 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Trading Bot{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <!-- Metrics Cards -->
+    <div class="col-md-3 mb-3">
+        <div class="card metric-card">
+            <div class="card-body text-center">
+                <i class="fas fa-chart-line fa-2x mb-2"></i>
+                <h5 class="card-title">Açık Pozisyonlar</h5>
+                <h3 id="open-positions">{{ open_positions_count }}</h3>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3 mb-3">
+        <div class="card metric-card">
+            <div class="card-body text-center">
+                <i class="fas fa-dollar-sign fa-2x mb-2"></i>
+                <h5 class="card-title">Günlük P&L</h5>
+                <h3 id="daily-pnl" class="{{ 'profit' if daily_pnl >= 0 else 'loss' }}">
+                    ${{ "%.2f"|format(daily_pnl) }}
+                </h3>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3 mb-3">
+        <div class="card metric-card">
+            <div class="card-body text-center">
+                <i class="fas fa-exchange-alt fa-2x mb-2"></i>
+                <h5 class="card-title">Bugünkü İşlemler</h5>
+                <h3 id="daily-trades">{{ daily_trades_count }}</h3>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3 mb-3">
+        <div class="card metric-card">
+            <div class="card-body text-center">
+                <i class="fas fa-percentage fa-2x mb-2"></i>
+                <h5 class="card-title">Başarı Oranı</h5>
+                <h3 id="success-rate">{{ "%.1f"|format(success_rate) }}%</h3>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <!-- Active Positions -->
+    <div class="col-md-8 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-chart-line"></i> Açık Pozisyonlar
+                </h5>
+            </div>
+            <div class="card-body">
+                {% if positions %}
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Symbol</th>
+                                    <th>Yön</th>
+                                    <th>Boyut</th>
+                                    <th>Giriş Fiyatı</th>
+                                    <th>Güncel Fiyat</th>
+                                    <th>PnL</th>
+                                    <th>PnL %</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for position in positions %}
+                                <tr>
+                                    <td><strong>{{ position.symbol }}</strong></td>
+                                    <td>
+                                        <span class="badge {{ 'bg-success' if position.side.value == 'long' else 'bg-danger' }}">
+                                            {{ position.side.value.upper() }}
+                                        </span>
+                                    </td>
+                                    <td>{{ "%.4f"|format(position.size) }}</td>
+                                    <td>${{ "%.2f"|format(position.entry_price) }}</td>
+                                    <td>${{ "%.2f"|format(position.mark_price or position.entry_price) }}</td>
+                                    <td class="{{ 'profit' if position.unrealized_pnl >= 0 else 'loss' }}">
+                                        ${{ "%.2f"|format(position.unrealized_pnl) }}
+                                    </td>
+                                    <td class="{{ 'profit' if position.calculate_pnl_percentage() >= 0 else 'loss' }}">
+                                        {{ "%.2f"|format(position.calculate_pnl_percentage()) }}%
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="text-center text-muted py-4">
+                        <i class="fas fa-chart-line fa-3x mb-3"></i>
+                        <p>Henüz açık pozisyon bulunmuyor</p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <!-- Bot Status & Controls -->
+    <div class="col-md-4 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-robot"></i> Bot Durumu
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span>Bot Durumu:</span>
+                        <span class="badge {{ 'bg-success' if bot_enabled and not emergency_stop else 'bg-danger' }}">
+                            {{ 'Aktif' if bot_enabled and not emergency_stop else 'Durduruldu' }}
+                        </span>
+                    </div>
+                    
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span>Acil Durum:</span>
+                        <span class="badge {{ 'bg-danger' if emergency_stop else 'bg-success' }}">
+                            {{ 'Aktif' if emergency_stop else 'Normal' }}
+                        </span>
+                    </div>
+                    
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span>Kaldıraç:</span>
+                        <span class="badge bg-info">{{ default_leverage }}x</span>
+                    </div>
+                    
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span>Max Pozisyon:</span>
+                        <span class="badge bg-secondary">{{ max_concurrent_positions }}</span>
+                    </div>
+                </div>
+                
+                <hr>
+                
+                <div class="d-grid gap-2">
+                    {% if not bot_enabled or emergency_stop %}
+                        <button class="btn btn-success-gradient" onclick="startBot()">
+                            <i class="fas fa-play"></i> Bot'u Başlat
+                        </button>
+                    {% else %}
+                        <button class="btn btn-warning" onclick="stopBot()">
+                            <i class="fas fa-pause"></i> Bot'u Durdur
+                        </button>
+                    {% endif %}
+                    
+                    <button class="btn btn-emergency" onclick="emergencyStop()">
+                        <i class="fas fa-stop"></i> Acil Durdur
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Recent Signals -->
+        <div class="card mt-3">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-satellite-dish"></i> Son Sinyaller
+                </h5>
+            </div>
+            <div class="card-body">
+                {% if recent_signals %}
+                    {% for signal in recent_signals %}
+                    <div class="d-flex justify-content-between align-items-center mb-2 p-2 bg-light rounded">
+                        <div>
+                            <strong>{{ signal.symbol }}</strong>
+                            <span class="badge {{ 'bg-success' if signal.signal_type.value == 'buy' else 'bg-danger' if signal.signal_type.value == 'sell' else 'bg-warning' }}">
+                                {{ signal.signal_type.value.upper() }}
+                            </span>
+                        </div>
+                        <small class="text-muted">
+                            {{ signal.created_at.strftime('%H:%M') }}
+                        </small>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="text-center text-muted">
+                        <i class="fas fa-satellite-dish fa-2x mb-2"></i>
+                        <p class="mb-0">Henüz sinyal alınmadı</p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Recent Trades -->
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-history"></i> Son İşlemler
+                </h5>
+            </div>
+            <div class="card-body">
+                {% if recent_trades %}
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Zaman</th>
+                                    <th>Symbol</th>
+                                    <th>Tip</th>
+                                    <th>Miktar</th>
+                                    <th>Giriş Fiyatı</th>
+                                    <th>Çıkış Fiyatı</th>
+                                    <th>PnL</th>
+                                    <th>Durum</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for trade in recent_trades %}
+                                <tr>
+                                    <td>{{ trade.created_at.strftime('%d/%m %H:%M') }}</td>
+                                    <td><strong>{{ trade.symbol }}</strong></td>
+                                    <td>
+                                        <span class="badge {{ 'bg-success' if trade.trade_type.value == 'long' else 'bg-danger' }}">
+                                            {{ trade.trade_type.value.upper() }}
+                                        </span>
+                                    </td>
+                                    <td>{{ "%.4f"|format(trade.quantity) }}</td>
+                                    <td>${{ "%.2f"|format(trade.entry_price) if trade.entry_price else '-' }}</td>
+                                    <td>${{ "%.2f"|format(trade.exit_price) if trade.exit_price else '-' }}</td>
+                                    <td class="{{ 'profit' if trade.net_pnl and trade.net_pnl >= 0 else 'loss' if trade.net_pnl else '' }}">
+                                        {% if trade.net_pnl %}
+                                            ${{ "%.2f"|format(trade.net_pnl) }}
+                                        {% else %}
+                                            -
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <span class="badge status-badge {{ 'bg-success' if trade.status.value == 'closed' else 'bg-warning' if trade.status.value == 'open' else 'bg-danger' if trade.status.value == 'error' else 'bg-secondary' }}">
+                                            {{ trade.status.value.upper() }}
+                                        </span>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="text-center text-muted py-4">
+                        <i class="fas fa-exchange-alt fa-3x mb-3"></i>
+                        <p>Henüz işlem bulunmuyor</p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function startBot() {
+        if (confirm('Bot\'u başlatmak istediğinizden emin misiniz?')) {
+            fetch('/api/start-bot', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        location.reload();
+                    } else {
+                        alert('Hata: ' + data.error);
+                    }
+                })
+                .catch(error => {
+                    alert('Bot başlatılırken hata oluştu!');
+                    console.error('Start bot error:', error);
+                });
+        }
+    }
+    
+    function stopBot() {
+        if (confirm('Bot\'u durdurmak istediğinizden emin misiniz?')) {
+            fetch('/api/stop-bot', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        location.reload();
+                    } else {
+                        alert('Hata: ' + data.error);
+                    }
+                })
+                .catch(error => {
+                    alert('Bot durdurulurken hata oluştu!');
+                    console.error('Stop bot error:', error);
+                });
+        }
+    }
+    
+    // Auto refresh dashboard every 30 seconds
+    setInterval(() => {
+        location.reload();
+    }, 30000);
+</script>
+{% endblock %}

@@ -1,0 +1,335 @@
+{% extends "base.html" %}
+
+{% block title %}Pozisyonlar - Trading Bot{% endblock %}
+{% block page_title %}Açık Pozisyonlar{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <!-- Position Summary Cards -->
+    <div class="col-md-3 mb-3">
+        <div class="card metric-card">
+            <div class="card-body text-center">
+                <i class="fas fa-chart-line fa-2x mb-2"></i>
+                <h5 class="card-title">Toplam Pozisyon</h5>
+                <h3>{{ positions|length }}</h3>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3 mb-3">
+        <div class="card metric-card">
+            <div class="card-body text-center">
+                <i class="fas fa-arrow-up fa-2x mb-2"></i>
+                <h5 class="card-title">Long Pozisyonlar</h5>
+                <h3 class="text-success">{{ long_count }}</h3>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3 mb-3">
+        <div class="card metric-card">
+            <div class="card-body text-center">
+                <i class="fas fa-arrow-down fa-2x mb-2"></i>
+                <h5 class="card-title">Short Pozisyonlar</h5>
+                <h3 class="text-danger">{{ short_count }}</h3>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3 mb-3">
+        <div class="card metric-card">
+            <div class="card-body text-center">
+                <i class="fas fa-dollar-sign fa-2x mb-2"></i>
+                <h5 class="card-title">Toplam PnL</h5>
+                <h3 class="{{ 'text-success' if total_pnl >= 0 else 'text-danger' }}">
+                    ${{ "%.2f"|format(total_pnl) }}
+                </h3>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Active Positions Table -->
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="fas fa-chart-line"></i> Açık Pozisyonlar
+                </h5>
+                <div>
+                    <button class="btn btn-sm btn-outline-primary" onclick="refreshPositions()">
+                        <i class="fas fa-sync-alt"></i> Yenile
+                    </button>
+                    <button class="btn btn-sm btn-outline-danger" onclick="closeAllPositions()">
+                        <i class="fas fa-times-circle"></i> Tümünü Kapat
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                {% if positions %}
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead class="table-dark">
+                                <tr>
+                                    <th>Symbol</th>
+                                    <th>Yön</th>
+                                    <th>Boyut</th>
+                                    <th>Giriş Fiyatı</th>
+                                    <th>Güncel Fiyat</th>
+                                    <th>Liquidation</th>
+                                    <th>PnL (USDT)</th>
+                                    <th>PnL (%)</th>
+                                    <th>Stop Loss</th>
+                                    <th>Take Profit</th>
+                                    <th>Süre</th>
+                                    <th>İşlemler</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for position in positions %}
+                                <tr id="position-{{ position.id }}">
+                                    <td>
+                                        <strong>{{ position.symbol }}</strong>
+                                        <br>
+                                        <small class="text-muted">{{ position.leverage }}x</small>
+                                    </td>
+                                    <td>
+                                        <span class="badge {{ 'bg-success' if position.side.value == 'long' else 'bg-danger' }} fs-6">
+                                            {% if position.side.value == 'long' %}
+                                                <i class="fas fa-arrow-up"></i> LONG
+                                            {% else %}
+                                                <i class="fas fa-arrow-down"></i> SHORT
+                                            {% endif %}
+                                        </span>
+                                    </td>
+                                    <td>
+                                        {{ "%.4f"|format(position.size) }}
+                                        <br>
+                                        <small class="text-muted">${{ "%.2f"|format(position.notional) }}</small>
+                                    </td>
+                                    <td>${{ "%.4f"|format(position.entry_price) }}</td>
+                                    <td>
+                                        <span id="price-{{ position.id }}">
+                                            ${{ "%.4f"|format(position.mark_price or position.entry_price) }}
+                                        </span>
+                                    </td>
+                                    <td>
+                                        {% if position.liquidation_price %}
+                                            <span class="text-warning">
+                                                ${{ "%.4f"|format(position.liquidation_price) }}
+                                            </span>
+                                        {% else %}
+                                            <span class="text-muted">-</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <span id="pnl-{{ position.id }}" class="{{ 'text-success' if position.unrealized_pnl >= 0 else 'text-danger' }}">
+                                            ${{ "%.2f"|format(position.unrealized_pnl) }}
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span id="pnl-percent-{{ position.id }}" class="{{ 'text-success' if position.calculate_pnl_percentage() >= 0 else 'text-danger' }}">
+                                            {{ "%.2f"|format(position.calculate_pnl_percentage()) }}%
+                                        </span>
+                                    </td>
+                                    <td>
+                                        {% if position.stop_loss_price %}
+                                            <span class="text-danger">
+                                                ${{ "%.4f"|format(position.stop_loss_price) }}
+                                            </span>
+                                        {% else %}
+                                            <span class="text-muted">-</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if position.take_profit_price %}
+                                            <span class="text-success">
+                                                ${{ "%.4f"|format(position.take_profit_price) }}
+                                            </span>
+                                        {% else %}
+                                            <span class="text-muted">-</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <small class="text-muted">
+                                            {{ position.opened_at.strftime('%d/%m %H:%M') if position.opened_at else '-' }}
+                                        </small>
+                                    </td>
+                                    <td>
+                                        <div class="btn-group btn-group-sm" role="group">
+                                            <button class="btn btn-outline-warning" onclick="editPosition({{ position.id }})" title="Düzenle">
+                                                <i class="fas fa-edit"></i>
+                                            </button>
+                                            <button class="btn btn-outline-danger" onclick="closePosition({{ position.id }})" title="Kapat">
+                                                <i class="fas fa-times"></i>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="text-center text-muted py-5">
+                        <i class="fas fa-chart-line fa-4x mb-3 opacity-50"></i>
+                        <h4>Açık Pozisyon Bulunmuyor</h4>
+                        <p class="mb-4">Henüz açık pozisyonunuz yok. TradingView sinyalleri geldiğinde otomatik olarak pozisyonlar açılacak.</p>
+                        <div class="d-flex justify-content-center gap-2">
+                            <a href="{{ url_for('web.dashboard') }}" class="btn btn-primary">
+                                <i class="fas fa-tachometer-alt"></i> Dashboard'a Dön
+                            </a>
+                            <a href="{{ url_for('web.signals') }}" class="btn btn-outline-primary">
+                                <i class="fas fa-satellite-dish"></i> Sinyalleri Görüntüle
+                            </a>
+                        </div>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Position Edit Modal -->
+<div class="modal fade" id="editPositionModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Pozisyon Düzenle</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="editPositionForm">
+                    <input type="hidden" id="editPositionId">
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Stop Loss Fiyatı</label>
+                        <input type="number" class="form-control" id="editStopLoss" step="0.0001" placeholder="Stop loss fiyatı">
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Take Profit Fiyatı</label>
+                        <input type="number" class="form-control" id="editTakeProfit" step="0.0001" placeholder="Take profit fiyatı">
+                    </div>
+                    
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="editTrailingStop">
+                        <label class="form-check-label" for="editTrailingStop">
+                            Trailing Stop Aktif
+                        </label>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
+                <button type="button" class="btn btn-primary" onclick="savePositionChanges()">Kaydet</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Auto refresh positions every 10 seconds
+    setInterval(refreshPositions, 10000);
+    
+    function refreshPositions() {
+        location.reload();
+    }
+    
+    function closePosition(positionId) {
+        if (confirm('Bu pozisyonu kapatmak istediğinizden emin misiniz?')) {
+            fetch(`/api/close-position/${positionId}`, { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        location.reload();
+                    } else {
+                        alert('Hata: ' + data.error);
+                    }
+                })
+                .catch(error => {
+                    alert('Pozisyon kapatılırken hata oluştu!');
+                    console.error('Close position error:', error);
+                });
+        }
+    }
+    
+    function closeAllPositions() {
+        if (confirm('TÜM pozisyonları kapatmak istediğinizden emin misiniz? Bu işlem geri alınamaz!')) {
+            fetch('/api/close-all-positions', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        alert('Tüm pozisyonlar kapatıldı!');
+                        location.reload();
+                    } else {
+                        alert('Hata: ' + data.error);
+                    }
+                })
+                .catch(error => {
+                    alert('Pozisyonlar kapatılırken hata oluştu!');
+                    console.error('Close all positions error:', error);
+                });
+        }
+    }
+    
+    function editPosition(positionId) {
+        // Get position data and populate modal
+        fetch(`/api/position/${positionId}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    document.getElementById('editPositionId').value = positionId;
+                    document.getElementById('editStopLoss').value = data.position.stop_loss_price || '';
+                    document.getElementById('editTakeProfit').value = data.position.take_profit_price || '';
+                    document.getElementById('editTrailingStop').checked = data.position.trailing_stop_price ? true : false;
+                    
+                    new bootstrap.Modal(document.getElementById('editPositionModal')).show();
+                } else {
+                    alert('Pozisyon bilgileri alınamadı: ' + data.error);
+                }
+            })
+            .catch(error => {
+                alert('Pozisyon bilgileri alınırken hata oluştu!');
+                console.error('Get position error:', error);
+            });
+    }
+    
+    function savePositionChanges() {
+        const positionId = document.getElementById('editPositionId').value;
+        const stopLoss = document.getElementById('editStopLoss').value;
+        const takeProfit = document.getElementById('editTakeProfit').value;
+        const trailingStop = document.getElementById('editTrailingStop').checked;
+        
+        const data = {
+            stop_loss: stopLoss ? parseFloat(stopLoss) : null,
+            take_profit: takeProfit ? parseFloat(takeProfit) : null,
+            trailing_stop: trailingStop
+        };
+        
+        fetch(`/api/update-position/${positionId}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(data)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                bootstrap.Modal.getInstance(document.getElementById('editPositionModal')).hide();
+                location.reload();
+            } else {
+                alert('Hata: ' + data.error);
+            }
+        })
+        .catch(error => {
+            alert('Pozisyon güncellenirken hata oluştu!');
+            console.error('Update position error:', error);
+        });
+    }
+</script>
+{% endblock %}

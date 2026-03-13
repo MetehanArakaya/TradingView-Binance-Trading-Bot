@@ -1,0 +1,410 @@
+{% extends "base.html" %}
+
+{% block title %}Ayarlar - Trading Bot{% endblock %}
+{% block page_title %}Bot Ayarları{% endblock %}
+
+{% block content %}
+<div class="row">
+    <!-- Binance API Settings -->
+    <div class="col-md-6 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-key"></i> Binance API Ayarları
+                </h5>
+            </div>
+            <div class="card-body">
+                <form id="binanceApiForm">
+                    <div class="mb-3">
+                        <label class="form-label">API Key</label>
+                        <input type="password" class="form-control" id="apiKey"
+                               value="{{ settings.get_binance_api_key() or '' }}"
+                               placeholder="Binance API Key">
+                        <small class="form-text text-muted">Binance Futures API anahtarınız</small>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Secret Key</label>
+                        <input type="password" class="form-control" id="secretKey"
+                               value="{{ settings.get_binance_secret_key() or '' }}"
+                               placeholder="Binance Secret Key">
+                        <small class="form-text text-muted">Binance Secret anahtarınız</small>
+                    </div>
+                    
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="testnetMode" 
+                               {{ 'checked' if settings.testnet_mode else '' }}>
+                        <label class="form-check-label" for="testnetMode">
+                            Testnet Modu
+                        </label>
+                        <small class="form-text text-muted d-block">Güvenlik için testnet kullanın</small>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save"></i> API Ayarlarını Kaydet
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Trading Settings -->
+    <div class="col-md-6 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-chart-line"></i> İşlem Ayarları
+                </h5>
+            </div>
+            <div class="card-body">
+                <form id="tradingSettingsForm">
+                    <div class="mb-3">
+                        <label class="form-label">Varsayılan Kaldıraç</label>
+                        <select class="form-select" id="defaultLeverage">
+                            <option value="5" {{ 'selected' if settings.default_leverage == 5 else '' }}>5x</option>
+                            <option value="10" {{ 'selected' if settings.default_leverage == 10 else '' }}>10x</option>
+                            <option value="20" {{ 'selected' if settings.default_leverage == 20 else '' }}>20x</option>
+                            <option value="50" {{ 'selected' if settings.default_leverage == 50 else '' }}>50x</option>
+                        </select>
+                    </div>
+                    
+                    
+                    <div class="mb-3">
+                        <label class="form-label">İşlem Tutarı Yöntemi</label>
+                        <select class="form-select" id="positionSizing">
+                            <option value="fixed" {{ 'selected' if settings.position_sizing_method == 'fixed' else '' }}>
+                                💰 Sabit Tutar (USDT) - Her işlemde aynı miktar
+                            </option>
+                            <option value="percentage" {{ 'selected' if settings.position_sizing_method == 'percentage' else '' }}>
+                                📊 Portföy Yüzdesi (%) - Bakiyeye göre oran
+                            </option>
+                        </select>
+                        <small class="form-text text-muted">Her sinyal geldiğinde ne kadar para ile işlem yapılacağını belirler</small>
+                    </div>
+                    
+                    <div class="mb-3" id="fixedDiv" style="{{ 'display: none;' if settings.position_sizing_method != 'fixed' else '' }}">
+                        <label class="form-label">
+                            <i class="fas fa-dollar-sign text-success"></i> İşlem Tutarı (USDT)
+                        </label>
+                        <input type="number" class="form-control" id="maxPositionUsdt"
+                               value="{{ settings.max_position_size_usdt or 1 }}" min="1" max="50000" step="1">
+                        <small class="form-text text-success">
+                            <strong>Örnek:</strong> 1 USDT yazarsanız, her sinyalde 1 USDT ile işlem açılır (test için ideal)
+                        </small>
+                    </div>
+                    
+                    <div class="mb-3" id="percentageDiv" style="{{ 'display: none;' if settings.position_sizing_method != 'percentage' else '' }}">
+                        <label class="form-label">
+                            <i class="fas fa-percentage text-info"></i> Portföy Yüzdesi (%)
+                        </label>
+                        <input type="number" class="form-control" id="maxPositionPercent"
+                               value="{{ settings.max_position_size_percent or 5 }}" min="0.1" max="100" step="0.1">
+                        <small class="form-text text-info">
+                            <strong>Örnek:</strong> %5 yazarsanız, 1000 USDT bakiyede 50 USDT ile işlem açılır
+                        </small>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save"></i> İşlem Ayarlarını Kaydet
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+    <!-- Telegram Settings -->
+    <div class="col-md-6 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fab fa-telegram"></i> Telegram Ayarları
+                </h5>
+            </div>
+            <div class="card-body">
+                <form id="telegramSettingsForm">
+                    <div class="mb-3">
+                        <label class="form-label">Bot Token</label>
+                        <input type="password" class="form-control" id="telegramToken"
+                               value="{{ settings.get_telegram_bot_token() or '' }}"
+                               placeholder="Telegram Bot Token">
+                        <small class="form-text text-muted">@BotFather'dan alınan token</small>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Chat ID</label>
+                        <div class="input-group">
+                            <input type="text" class="form-control" id="telegramChatId"
+                                   value="{{ settings.telegram_chat_id or '' }}"
+                                   placeholder="Telegram Chat ID">
+                            <button type="button" class="btn btn-outline-success" onclick="fetchChatId()" id="fetchChatIdBtn">
+                                <i class="fas fa-download"></i> Chat ID Çek
+                            </button>
+                        </div>
+                        <small class="form-text text-muted">Bildirimlerin gönderileceği chat ID. Butona basarak otomatik çekin.</small>
+                    </div>
+                    
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="telegramNotifications" 
+                               {{ 'checked' if settings.telegram_notifications_enabled else '' }}>
+                        <label class="form-check-label" for="telegramNotifications">
+                            Telegram Bildirimleri Aktif
+                        </label>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save"></i> Telegram Ayarlarını Kaydet
+                    </button>
+                    
+                    <button type="button" class="btn btn-outline-info ms-2" onclick="testTelegram()">
+                        <i class="fas fa-paper-plane"></i> Test Mesajı Gönder
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Allowed Symbols Settings -->
+<div class="row">
+    <div class="col-12 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-coins"></i> İzin Verilen Semboller
+                </h5>
+            </div>
+            <div class="card-body">
+                <form id="symbolsForm">
+                    <div class="mb-3">
+                        <label class="form-label">Sembol Listesi</label>
+                        <textarea class="form-control" id="allowedSymbols" rows="3"
+                                  placeholder="BTCUSDT, ETHUSDT, ADAUSDT">{{ settings.allowed_symbols or '' }}</textarea>
+                        <small class="form-text text-muted">Virgülle ayrılmış sembol listesi. Boş bırakılırsa tüm semboller kabul edilir.</small>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save"></i> Sembolleri Kaydet
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Position sizing method change handler
+    document.getElementById('positionSizing').addEventListener('change', function() {
+        const method = this.value;
+        const percentageDiv = document.getElementById('percentageDiv');
+        const fixedDiv = document.getElementById('fixedDiv');
+        
+        if (method === 'percentage') {
+            percentageDiv.style.display = 'block';
+            fixedDiv.style.display = 'none';
+        } else {
+            percentageDiv.style.display = 'none';
+            fixedDiv.style.display = 'block';
+        }
+    });
+    
+    
+    // Binance API Form
+    document.getElementById('binanceApiForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const data = {
+            api_key: document.getElementById('apiKey').value,
+            secret_key: document.getElementById('secretKey').value,
+            testnet_mode: document.getElementById('testnetMode').checked
+        };
+        
+        fetch('/api/settings/binance', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert('Binance API ayarları kaydedildi!');
+            } else {
+                alert('Hata: ' + data.error);
+            }
+        })
+        .catch(error => {
+            alert('Ayarlar kaydedilirken hata oluştu!');
+            console.error('Settings error:', error);
+        });
+    });
+    
+    // Trading Settings Form
+    document.getElementById('tradingSettingsForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const data = {
+            default_leverage: parseInt(document.getElementById('defaultLeverage').value),
+            position_sizing_method: document.getElementById('positionSizing').value,
+            max_position_size_percent: parseFloat(document.getElementById('maxPositionPercent').value),
+            max_position_size_usdt: parseFloat(document.getElementById('maxPositionUsdt').value)
+        };
+        
+        fetch('/api/settings/trading', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert('İşlem ayarları kaydedildi!');
+            } else {
+                alert('Hata: ' + data.error);
+            }
+        })
+        .catch(error => {
+            alert('Ayarlar kaydedilirken hata oluştu!');
+            console.error('Settings error:', error);
+        });
+    });
+    
+    
+    // Telegram Settings Form
+    document.getElementById('telegramSettingsForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const data = {
+            telegram_bot_token: document.getElementById('telegramToken').value,
+            telegram_chat_id: document.getElementById('telegramChatId').value,
+            telegram_notifications_enabled: document.getElementById('telegramNotifications').checked
+        };
+        
+        fetch('/api/settings/telegram', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert('Telegram ayarları kaydedildi!');
+            } else {
+                alert('Hata: ' + data.error);
+            }
+        })
+        .catch(error => {
+            alert('Ayarlar kaydedilirken hata oluştu!');
+            console.error('Settings error:', error);
+        });
+    });
+    
+    // Symbols Form
+    document.getElementById('symbolsForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const data = {
+            allowed_symbols: document.getElementById('allowedSymbols').value
+        };
+        
+        fetch('/api/settings/symbols', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert('Sembol ayarları kaydedildi!');
+            } else {
+                alert('Hata: ' + data.error);
+            }
+        })
+        .catch(error => {
+            alert('Ayarlar kaydedilirken hata oluştu!');
+            console.error('Settings error:', error);
+        });
+    });
+    
+    
+    // Test Telegram function
+    function testTelegram() {
+        fetch('/api/test-telegram', { method: 'POST' })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('Test mesajı gönderildi!');
+                } else {
+                    alert('Hata: ' + data.error);
+                }
+            })
+            .catch(error => {
+                alert('Test mesajı gönderilirken hata oluştu!');
+                console.error('Telegram test error:', error);
+            });
+    }
+
+    // Alert gösterme fonksiyonu
+    function showAlert(message, type = 'info') {
+        // Bootstrap alert oluştur
+        const alertDiv = document.createElement('div');
+        alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
+        alertDiv.innerHTML = `
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        `;
+        
+        // Alert'i sayfanın üstüne ekle
+        const container = document.querySelector('.container-fluid');
+        container.insertBefore(alertDiv, container.firstChild);
+        
+        // 5 saniye sonra otomatik kapat
+        setTimeout(() => {
+            if (alertDiv.parentNode) {
+                alertDiv.remove();
+            }
+        }, 5000);
+    }
+
+    // Chat ID otomatik çekme fonksiyonu
+    function fetchChatId() {
+        const btn = document.getElementById('fetchChatIdBtn');
+        const originalText = btn.innerHTML;
+        
+        // Butonu loading durumuna getir
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Chat ID Çekiliyor...';
+        
+        fetch('/api/get-chat-id')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success && data.chat_id) {
+                    // Chat ID'yi input alanına yaz
+                    document.getElementById('telegramChatId').value = data.chat_id;
+                    
+                    // Başarı mesajı göster
+                    showAlert(`Chat ID başarıyla alındı: ${data.chat_id}`, 'success');
+                    
+                    // Chat bilgilerini göster
+                    if (data.chat_info) {
+                        const chatInfo = data.chat_info;
+                        showAlert(`Chat: ${chatInfo.name} (${chatInfo.type})`, 'info');
+                    }
+                } else {
+                    // Hata mesajını göster
+                    showAlert(data.error || 'Chat ID alınamadı', 'danger');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showAlert('Chat ID çekilirken hata oluştu', 'danger');
+            })
+            .finally(() => {
+                // Butonu eski haline getir
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+            });
+    }
+</script>
+{% endblock %}

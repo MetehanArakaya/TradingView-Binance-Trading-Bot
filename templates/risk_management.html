@@ -1,0 +1,964 @@
+{% extends "base.html" %}
+
+{% block title %}Risk Yönetimi - Trading Bot{% endblock %}
+{% block page_title %}Risk Yönetimi{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <!-- Risk Summary Cards -->
+    <div class="col-md-3 mb-3">
+        <div class="card metric-card">
+            <div class="card-body text-center">
+                <i class="fas fa-shield-alt fa-2x mb-2"></i>
+                <h5 class="card-title">Risk Oranı</h5>
+                <h3 class="{{ 'text-danger' if risk_percentage > 80 else 'text-warning' if risk_percentage > 50 else 'text-success' }}">
+                    {{ "%.1f"|format(risk_percentage) }}%
+                </h3>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3 mb-3">
+        <div class="card metric-card">
+            <div class="card-body text-center">
+                <i class="fas fa-dollar-sign fa-2x mb-2"></i>
+                <h5 class="card-title">Toplam Maruz Kalma</h5>
+                <h3>${{ "%.2f"|format(total_exposure) }}</h3>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3 mb-3">
+        <div class="card metric-card">
+            <div class="card-body text-center">
+                <i class="fas fa-chart-line fa-2x mb-2"></i>
+                <h5 class="card-title">Günlük PnL</h5>
+                <h3 class="{{ 'text-success' if daily_pnl >= 0 else 'text-danger' }}">
+                    ${{ "%.2f"|format(daily_pnl) }}
+                </h3>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3 mb-3">
+        <div class="card metric-card">
+            <div class="card-body text-center">
+                <i class="fas fa-wallet fa-2x mb-2"></i>
+                <h5 class="card-title">Hesap Bakiyesi</h5>
+                <h3>${{ "%.2f"|format(account_balance) }}</h3>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <!-- Risk Settings -->
+    <div class="col-md-6 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-cogs"></i> Risk Parametreleri
+                </h5>
+            </div>
+            <div class="card-body">
+                <form id="riskParametersForm">
+                    <!-- Risk Oranı bilgilendirme - ayar Settings sayfasında -->
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle"></i>
+                        <strong>İşlem Tutarı Ayarları:</strong>
+                        İşlem tutarı ve risk yönetimi ayarları <a href="/settings" class="alert-link">Ayarlar</a> sayfasında yapılandırılır.
+                        <br><small>Mevcut: {{ 'Sabit Tutar (' + (settings.max_position_size_usdt|string) + ' USDT)' if settings.position_sizing_method == 'fixed' else 'Portföy Yüzdesi (' + (settings.max_position_size_percent|string) + '%)' }}</small>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Maksimum Eş Zamanlı Pozisyon Sayısı</label>
+                        <input type="number" class="form-control" id="maxConcurrentPositions"
+                               value="{{ settings.max_concurrent_positions or 3 }}" min="0" max="200">
+                        <small class="form-text text-muted">Aynı anda açık olabilecek maksimum pozisyon sayısı (0 = Limitsiz)</small>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="maxPositionsEnabled"
+                                   {{ 'checked' if settings.max_concurrent_positions_enabled else '' }}>
+                            <label class="form-check-label" for="maxPositionsEnabled">
+                                Maksimum pozisyon limiti aktif
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <hr>
+                    
+                    <!-- Basic Take Profit Settings -->
+                    <h6 class="text-success">🎯 Take Profit</h6>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="useTakeProfit"
+                               {{ 'checked' if settings.use_take_profit else '' }}>
+                        <label class="form-check-label" for="useTakeProfit">
+                            Take Profit Kullan
+                        </label>
+                    </div>
+                    
+                    <hr>
+                    
+                    <!-- Daily Loss Limit -->
+                    <h6 class="text-warning">📊 Günlük Limit</h6>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="dailyLossLimitEnabled"
+                               {{ 'checked' if settings.daily_loss_limit_enabled else '' }}>
+                        <label class="form-check-label" for="dailyLossLimitEnabled">
+                            Günlük Maksimum Kayıp Limiti Aktif
+                        </label>
+                    </div>
+                    
+                    <div class="mb-3" id="dailyLossLimitDiv" style="{{ 'display: none;' if not settings.daily_loss_limit_enabled else '' }}">
+                        <label class="form-label">Günlük Maksimum Kayıp (USDT)</label>
+                        <input type="number" class="form-control" id="dailyLossLimit"
+                               value="{{ settings.daily_loss_limit or 100 }}" min="10" step="10">
+                        <small class="form-text text-muted">Bu limite ulaşıldığında bot otomatik durur</small>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save"></i> Risk Parametreleri Kaydet
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Risk Alerts -->
+    <div class="col-md-6 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-exclamation-triangle"></i> Risk Uyarıları
+                </h5>
+            </div>
+            <div class="card-body">
+                <div id="riskAlerts">
+                    {% if risk_percentage > 80 %}
+                        <div class="alert alert-danger">
+                            <i class="fas fa-exclamation-circle"></i>
+                            <strong>Yüksek Risk!</strong> Risk oranınız %80'in üzerinde.
+                        </div>
+                    {% elif risk_percentage > 50 %}
+                        <div class="alert alert-warning">
+                            <i class="fas fa-exclamation-triangle"></i>
+                            <strong>Orta Risk!</strong> Risk oranınız %50'nin üzerinde.
+                        </div>
+                    {% endif %}
+                    
+                    {% if daily_pnl < -100 %}
+                        <div class="alert alert-warning">
+                            <i class="fas fa-chart-line-down"></i>
+                            <strong>Günlük Kayıp!</strong> Bugün ${{ "%.2f"|format(-daily_pnl) }} kayıp yaşandı.
+                        </div>
+                    {% endif %}
+                    
+                    {% if settings.max_concurrent_positions > 0 and open_positions|length >= settings.max_concurrent_positions %}
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle"></i>
+                            <strong>Pozisyon Limiti!</strong> Maksimum pozisyon sayısına ulaşıldı.
+                        </div>
+                    {% endif %}
+                    
+                    {% if not (risk_percentage > 50 or daily_pnl < -100 or open_positions|length >= settings.max_concurrent_positions) %}
+                        <div class="alert alert-success">
+                            <i class="fas fa-check-circle"></i>
+                            <strong>Risk Durumu İyi!</strong> Tüm risk parametreleri normal seviyede.
+                        </div>
+                    {% endif %}
+                </div>
+                
+                <div class="mt-3">
+                    <h6>Hızlı İşlemler</h6>
+                    <div class="d-grid gap-2">
+                        <button class="btn btn-warning" onclick="reduceRisk()">
+                            <i class="fas fa-shield-alt"></i> Riski Azalt
+                        </button>
+                        <button class="btn btn-danger" onclick="emergencyStop()">
+                            <i class="fas fa-stop"></i> Acil Durdur
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Advanced Stop Loss System -->
+<div class="row">
+    <div class="col-12 mb-4">
+        <div class="card border-danger">
+            <div class="card-header bg-danger text-white">
+                <h5 class="mb-0">
+                    <i class="fas fa-shield-alt"></i> Gelişmiş Stop Loss Sistemi
+                </h5>
+            </div>
+            <div class="card-body">
+                <form id="stopLossSystemForm">
+                    <!-- Basic Stop Loss Enable -->
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="useStopLoss"
+                               {{ 'checked' if settings.use_stop_loss else '' }}>
+                        <label class="form-check-label" for="useStopLoss">
+                            <strong>Stop Loss Sistemi Aktif</strong>
+                        </label>
+                        <small class="form-text text-muted d-block">Pozisyonları kayıplardan korumak için stop loss sistemini aktif eder</small>
+                    </div>
+                    
+                    <!-- Stop Loss Settings -->
+                    <div id="stopLossDiv" style="{{ 'display: none;' if not settings.use_stop_loss else '' }}">
+                        <div class="row">
+                            <!-- Traditional Trailing Stop -->
+                            <div class="col-md-4">
+                                <h6 class="text-warning">🔄 Trailing Stop Loss</h6>
+                                <div class="form-check mb-3">
+                                    <input class="form-check-input" type="checkbox" id="trailingStopEnabled"
+                                           {{ 'checked' if settings.trailing_stop_enabled else '' }}>
+                                    <label class="form-check-label" for="trailingStopEnabled">
+                                        Trailing Stop Aktif
+                                    </label>
+                                </div>
+                                
+                                <div id="trailingStopDiv" style="{{ 'display: none;' if not settings.trailing_stop_enabled else '' }}">
+                                    <div class="mb-3">
+                                        <label class="form-label">Trailing Stop Yüzdesi (%)</label>
+                                        <input type="number" class="form-control" id="trailingStopPercent"
+                                               value="{{ settings.trailing_stop_percent or 2.0 }}" min="0.1" max="10" step="0.1">
+                                        <small class="form-text text-muted">Fiyat bu kadar geri gelince SL tetiklenir</small>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Percentage-based Stop Loss -->
+                            <div class="col-md-4">
+                                <h6 class="text-danger">📊 Yüzde-bazlı Stop Loss</h6>
+                                <div class="form-check mb-3">
+                                    <input class="form-check-input" type="checkbox" id="percentageSlEnabled"
+                                           {{ 'checked' if settings.percentage_sl_enabled else '' }}>
+                                    <label class="form-check-label" for="percentageSlEnabled">
+                                        Yüzde-bazlı SL Aktif
+                                    </label>
+                                </div>
+                                
+                                <div id="percentageSlDiv" style="{{ 'display: none;' if not settings.percentage_sl_enabled else '' }}">
+                                    <div class="mb-3">
+                                        <label class="form-label">Stop Loss Yüzdesi (%)</label>
+                                        <input type="number" class="form-control" id="percentageSlPercent"
+                                               value="{{ settings.percentage_sl_percent or 3.0 }}" min="0.5" max="20" step="0.1">
+                                        <small class="form-text text-muted">Giriş fiyatından bu kadar kayıpta SL tetiklenir</small>
+                                    </div>
+                                    
+                                    <div class="form-check mb-3">
+                                        <input class="form-check-input" type="checkbox" id="percentageSlPortfolioBase"
+                                               {{ 'checked' if settings.percentage_sl_portfolio_base else '' }}>
+                                        <label class="form-check-label" for="percentageSlPortfolioBase">
+                                            Portföy bazlı hesaplama
+                                        </label>
+                                        <small class="form-text text-muted d-block">Toplam portföyün yüzdesi olarak hesapla</small>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- ATR-based Dynamic Stop Loss -->
+                            <div class="col-md-4">
+                                <h6 class="text-info">📈 ATR-bazlı Dinamik SL</h6>
+                                <div class="form-check mb-3">
+                                    <input class="form-check-input" type="checkbox" id="atrSlEnabled"
+                                           {{ 'checked' if settings.atr_sl_enabled else '' }}>
+                                    <label class="form-check-label" for="atrSlEnabled">
+                                        ATR-bazlı SL Aktif
+                                    </label>
+                                </div>
+                                
+                                <div id="atrSlDiv" style="{{ 'display: none;' if not settings.atr_sl_enabled else '' }}">
+                                    <div class="mb-3">
+                                        <label class="form-label">ATR Periyodu</label>
+                                        <input type="number" class="form-control" id="atrSlPeriod"
+                                               value="{{ settings.atr_sl_period or 14 }}" min="5" max="50" step="1">
+                                        <small class="form-text text-muted">ATR hesaplama için kullanılacak periyot</small>
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <label class="form-label">ATR Çarpanı</label>
+                                        <input type="number" class="form-control" id="atrSlMultiplier"
+                                               value="{{ settings.atr_sl_multiplier or 2.0 }}" min="0.5" max="5.0" step="0.1">
+                                        <small class="form-text text-muted">ATR değeri ile çarpılacak katsayı</small>
+                                    </div>
+                                    
+                                    <div class="form-check mb-3">
+                                        <input class="form-check-input" type="checkbox" id="atrSlDynamic"
+                                               {{ 'checked' if settings.atr_sl_dynamic else '' }}>
+                                        <label class="form-check-label" for="atrSlDynamic">
+                                            Dinamik güncelleme
+                                        </label>
+                                        <small class="form-text text-muted d-block">ATR değişimlerine göre SL'yi güncelle</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <hr>
+                        
+                        <!-- Advanced Stop Loss Features -->
+                        <div class="row">
+                            <div class="col-md-6">
+                                <h6 class="text-success">🎯 Breakeven Stop Loss</h6>
+                                <div class="form-check mb-3">
+                                    <input class="form-check-input" type="checkbox" id="breakevenSlEnabled"
+                                           {{ 'checked' if settings.breakeven_sl_enabled else '' }}>
+                                    <label class="form-check-label" for="breakevenSlEnabled">
+                                        Breakeven SL Aktif
+                                    </label>
+                                </div>
+                                
+                                <div id="breakevenSlDiv" style="{{ 'display: none;' if not settings.breakeven_sl_enabled else '' }}">
+                                    <div class="mb-3">
+                                        <label class="form-label">Aktivasyon Kar Yüzdesi (%)</label>
+                                        <input type="number" class="form-control" id="breakevenSlActivationPercent"
+                                               value="{{ settings.breakeven_sl_activation_percent or 2.0 }}" min="0.5" max="10" step="0.1">
+                                        <small class="form-text text-muted">Bu kar yüzdesine ulaşınca SL başabaş noktasına taşınır</small>
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <label class="form-label">Breakeven Offset (%)</label>
+                                        <input type="number" class="form-control" id="breakevenSlOffset"
+                                               value="{{ settings.breakeven_sl_offset or 0.1 }}" min="0" max="1" step="0.05">
+                                        <small class="form-text text-muted">Başabaş noktasından bu kadar yukarıda SL koy</small>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="col-md-6">
+                                <h6 class="text-warning">⚙️ Gelişmiş Ayarlar</h6>
+                                <div class="form-check mb-3">
+                                    <input class="form-check-input" type="checkbox" id="slPartialClose"
+                                           {{ 'checked' if settings.sl_partial_close else '' }}>
+                                    <label class="form-check-label" for="slPartialClose">
+                                        Kısmi Kapatma Aktif
+                                    </label>
+                                    <small class="form-text text-muted d-block">SL tetiklendiğinde pozisyonun sadece bir kısmını kapat</small>
+                                </div>
+                                
+                                <div id="slPartialCloseDiv" style="{{ 'display: none;' if not settings.sl_partial_close else '' }}">
+                                    <div class="mb-3">
+                                        <label class="form-label">Kapatılacak Miktar (%)</label>
+                                        <input type="number" class="form-control" id="slPartialClosePercent"
+                                               value="{{ settings.sl_partial_close_percent or 50 }}" min="10" max="100" step="5">
+                                        <small class="form-text text-muted">SL tetiklendiğinde kapatılacak pozisyon yüzdesi</small>
+                                    </div>
+                                </div>
+                                
+                                <div class="form-check mb-3">
+                                    <input class="form-check-input" type="checkbox" id="slTimeBasedExit"
+                                           {{ 'checked' if settings.sl_time_based_exit else '' }}>
+                                    <label class="form-check-label" for="slTimeBasedExit">
+                                        Zaman-bazlı Çıkış
+                                    </label>
+                                    <small class="form-text text-muted d-block">Belirli süre sonra pozisyonu otomatik kapat</small>
+                                </div>
+                                
+                                <div id="slTimeBasedExitDiv" style="{{ 'display: none;' if not settings.sl_time_based_exit else '' }}">
+                                    <div class="mb-3">
+                                        <label class="form-label">Maksimum Pozisyon Süresi (saat)</label>
+                                        <input type="number" class="form-control" id="slMaxPositionHours"
+                                               value="{{ settings.sl_max_position_hours or 24 }}" min="1" max="168" step="1">
+                                        <small class="form-text text-muted">Bu süre sonunda pozisyon otomatik kapatılır</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-danger">
+                        <i class="fas fa-shield-alt"></i> Stop Loss Sistemi Ayarlarını Kaydet
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Advanced Take Profit System -->
+<div class="row">
+    <div class="col-12 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-bullseye"></i> Gelişmiş Take Profit Sistemi
+                </h5>
+            </div>
+            <div class="card-body">
+                <form id="tpSystemForm">
+                    <!-- Multiple TP Enable -->
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="multipleTpEnabled"
+                               {{ 'checked' if settings.multiple_tp_enabled else '' }}>
+                        <label class="form-check-label" for="multipleTpEnabled">
+                            <strong>Çoklu TP Sistemi Aktif</strong>
+                        </label>
+                        <small class="form-text text-muted d-block">Pozisyonları kademeli olarak kapatmak için çoklu TP seviyelerini aktif eder</small>
+                    </div>
+                    
+                    <!-- Multiple TP Settings -->
+                    <div id="multipleTpDiv" style="{{ 'display: none;' if not settings.multiple_tp_enabled else '' }}">
+                        <div class="row">
+                            <div class="col-md-4">
+                                <h6 class="text-primary">🎯 TP1 Ayarları</h6>
+                                <div class="mb-3">
+                                    <label class="form-label">TP1 Yüzdesi (%)</label>
+                                    <input type="number" class="form-control" id="tp1Percent"
+                                           value="{{ settings.tp1_percent or 3.0 }}" min="0.1" max="50" step="0.1">
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">TP1 Miktar (%)</label>
+                                    <input type="number" class="form-control" id="tp1QuantityPercent"
+                                           value="{{ settings.tp1_quantity_percent or 33.33 }}" min="1" max="100" step="0.01">
+                                    <small class="form-text text-muted">Pozisyonun yüzde kaçı TP1'de kapatılacak</small>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <h6 class="text-success">🎯 TP2 Ayarları</h6>
+                                <div class="mb-3">
+                                    <label class="form-label">TP2 Yüzdesi (%)</label>
+                                    <input type="number" class="form-control" id="tp2Percent"
+                                           value="{{ settings.tp2_percent or 6.0 }}" min="0.1" max="50" step="0.1">
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">TP2 Miktar (%)</label>
+                                    <input type="number" class="form-control" id="tp2QuantityPercent"
+                                           value="{{ settings.tp2_quantity_percent or 33.33 }}" min="1" max="100" step="0.01">
+                                    <small class="form-text text-muted">Pozisyonun yüzde kaçı TP2'de kapatılacak</small>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <h6 class="text-warning">🎯 TP3 Ayarları</h6>
+                                <div class="mb-3">
+                                    <label class="form-label">TP3 Yüzdesi (%)</label>
+                                    <input type="number" class="form-control" id="tp3Percent"
+                                           value="{{ settings.tp3_percent or 9.0 }}" min="0.1" max="50" step="0.1">
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">TP3 Miktar (%)</label>
+                                    <input type="number" class="form-control" id="tp3QuantityPercent"
+                                           value="{{ settings.tp3_quantity_percent or 33.34 }}" min="1" max="100" step="0.01">
+                                    <small class="form-text text-muted">Pozisyonun yüzde kaçı TP3'de kapatılacak</small>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <hr>
+                        
+                        <!-- Advanced TP Features -->
+                        <div class="row">
+                            <div class="col-md-6">
+                                <h6 class="text-info">🔄 Trailing Take Profit</h6>
+                                <div class="form-check mb-3">
+                                    <input class="form-check-input" type="checkbox" id="trailingTpEnabled"
+                                           {{ 'checked' if settings.trailing_tp_enabled else '' }}>
+                                    <label class="form-check-label" for="trailingTpEnabled">
+                                        Trailing TP Aktif
+                                    </label>
+                                </div>
+                                
+                                <div id="trailingTpDiv" style="{{ 'display: none;' if not settings.trailing_tp_enabled else '' }}">
+                                    <div class="mb-3">
+                                        <label class="form-label">Aktivasyon Yüzdesi (%)</label>
+                                        <input type="number" class="form-control" id="trailingTpActivationPercent"
+                                               value="{{ settings.trailing_tp_activation_percent or 5.0 }}" min="1" max="20" step="0.1">
+                                        <small class="form-text text-muted">Bu kar yüzdesine ulaşınca trailing başlar</small>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Callback Yüzdesi (%)</label>
+                                        <input type="number" class="form-control" id="trailingTpCallbackPercent"
+                                               value="{{ settings.trailing_tp_callback_percent or 2.0 }}" min="0.1" max="10" step="0.1">
+                                        <small class="form-text text-muted">Fiyat bu kadar geri gelince TP tetiklenir</small>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="col-md-6">
+                                <h6 class="text-success">🛡️ Risk Yönetimi</h6>
+                                <div class="form-check mb-3">
+                                    <input class="form-check-input" type="checkbox" id="autoMoveSlToBreakeven"
+                                           {{ 'checked' if settings.auto_move_sl_to_breakeven else '' }}>
+                                    <label class="form-check-label" for="autoMoveSlToBreakeven">
+                                        SL'yi Otomatik Başabaş Noktasına Taşı
+                                    </label>
+                                    <small class="form-text text-muted d-block">TP1 tetiklenince SL başabaş noktasına taşınır</small>
+                                </div>
+                                
+                                <div class="form-check mb-3">
+                                    <input class="form-check-input" type="checkbox" id="riskFreeAfterTp1"
+                                           {{ 'checked' if settings.risk_free_after_tp1 else '' }}>
+                                    <label class="form-check-label" for="riskFreeAfterTp1">
+                                        TP1 Sonrası Risk-Free Mod
+                                    </label>
+                                    <small class="form-text text-muted d-block">TP1 tetiklenince pozisyon risk-free hale gelir</small>
+                                </div>
+                                
+                                <div class="form-check mb-3">
+                                    <input class="form-check-input" type="checkbox" id="scaleOutEnabled"
+                                           {{ 'checked' if settings.scale_out_enabled else '' }}>
+                                    <label class="form-check-label" for="scaleOutEnabled">
+                                        Kademeli Çıkış Aktif
+                                    </label>
+                                    <small class="form-text text-muted d-block">Pozisyonları kademeli olarak kapat</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-success">
+                        <i class="fas fa-bullseye"></i> TP Sistemi Ayarlarını Kaydet
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Position Risk Analysis -->
+<div class="row">
+    <div class="col-12 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-chart-pie"></i> Pozisyon Risk Analizi
+                </h5>
+            </div>
+            <div class="card-body">
+                {% if open_positions %}
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead class="table-dark">
+                                <tr>
+                                    <th>Symbol</th>
+                                    <th>Yön</th>
+                                    <th>Boyut</th>
+                                    <th>Notional</th>
+                                    <th>Risk (%)</th>
+                                    <th>PnL</th>
+                                    <th>Liquidation</th>
+                                    <th>Risk Seviyesi</th>
+                                    <th>İşlemler</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for position in open_positions %}
+                                {% set position_risk = (position.notional / account_balance * 100) if account_balance > 0 else 0 %}
+                                <tr>
+                                    <td><strong>{{ position.symbol }}</strong></td>
+                                    <td>
+                                        <span class="badge {{ 'bg-success' if position.side.value == 'long' else 'bg-danger' }} fs-6">
+                                            {{ position.side.value.upper() }}
+                                        </span>
+                                    </td>
+                                    <td>{{ "%.4f"|format(position.size) }}</td>
+                                    <td>${{ "%.2f"|format(position.notional or 0) }}</td>
+                                    <td>
+                                        <span class="{{ 'text-danger' if position_risk > 20 else 'text-warning' if position_risk > 10 else 'text-success' }}">
+                                            {{ "%.1f"|format(position_risk) }}%
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span class="{{ 'text-success' if (position.unrealized_pnl or 0) >= 0 else 'text-danger' }}">
+                                            ${{ "%.2f"|format(position.unrealized_pnl or 0) }}
+                                        </span>
+                                    </td>
+                                    <td>
+                                        {% if position.liquidation_price %}
+                                            <span class="text-warning">
+                                                ${{ "%.4f"|format(position.liquidation_price) }}
+                                            </span>
+                                        {% else %}
+                                            <span class="text-muted">-</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if position_risk > 20 %}
+                                            <span class="badge bg-danger">Yüksek</span>
+                                        {% elif position_risk > 10 %}
+                                            <span class="badge bg-warning">Orta</span>
+                                        {% else %}
+                                            <span class="badge bg-success">Düşük</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <div class="btn-group btn-group-sm">
+                                            <button class="btn btn-outline-warning" onclick="reducePositionSize({{ position.id }})" title="Boyutu Azalt">
+                                                <i class="fas fa-compress-alt"></i>
+                                            </button>
+                                            <button class="btn btn-outline-danger" onclick="closePosition({{ position.id }})" title="Kapat">
+                                                <i class="fas fa-times"></i>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="text-center text-muted py-4">
+                        <i class="fas fa-chart-pie fa-3x mb-3 opacity-50"></i>
+                        <h5>Açık Pozisyon Yok</h5>
+                        <p>Risk analizi için açık pozisyon bulunmuyor.</p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Risk History Chart -->
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-chart-area"></i> Risk Geçmişi
+                </h5>
+            </div>
+            <div class="card-body">
+                <canvas id="riskChart" height="100"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    // Risk Parameters Form
+    document.getElementById('riskParametersForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const data = {
+            max_concurrent_positions: parseInt(document.getElementById('maxConcurrentPositions').value),
+            max_concurrent_positions_enabled: document.getElementById('maxPositionsEnabled').checked,
+            use_take_profit: document.getElementById('useTakeProfit').checked,
+            daily_loss_limit_enabled: document.getElementById('dailyLossLimitEnabled').checked,
+            daily_loss_limit: parseFloat(document.getElementById('dailyLossLimit').value)
+        };
+        
+        fetch('/api/settings/risk', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert('Risk parametreleri güncellendi!');
+                location.reload();
+            } else {
+                alert('Hata: ' + data.error);
+            }
+        })
+        .catch(error => {
+            alert('Parametreler güncellenirken hata oluştu!');
+            console.error('Risk settings error:', error);
+        });
+    });
+
+    // Advanced Stop Loss System Form Handler
+    document.getElementById('stopLossSystemForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const formData = {
+            use_stop_loss: document.getElementById('useStopLoss').checked,
+            trailing_stop_enabled: document.getElementById('trailingStopEnabled').checked,
+            trailing_stop_percent: parseFloat(document.getElementById('trailingStopPercent').value),
+            percentage_sl_enabled: document.getElementById('percentageSlEnabled').checked,
+            percentage_sl_percent: parseFloat(document.getElementById('percentageSlPercent').value),
+            percentage_sl_portfolio_base: document.getElementById('percentageSlPortfolioBase').checked,
+            atr_sl_enabled: document.getElementById('atrSlEnabled').checked,
+            atr_sl_period: parseInt(document.getElementById('atrSlPeriod').value),
+            atr_sl_multiplier: parseFloat(document.getElementById('atrSlMultiplier').value),
+            atr_sl_dynamic: document.getElementById('atrSlDynamic').checked,
+            breakeven_sl_enabled: document.getElementById('breakevenSlEnabled').checked,
+            breakeven_sl_activation_percent: parseFloat(document.getElementById('breakevenSlActivationPercent').value),
+            breakeven_sl_offset: parseFloat(document.getElementById('breakevenSlOffset').value),
+            sl_partial_close: document.getElementById('slPartialClose').checked,
+            sl_partial_close_percent: parseFloat(document.getElementById('slPartialClosePercent').value),
+            sl_time_based_exit: document.getElementById('slTimeBasedExit').checked,
+            sl_max_position_hours: parseInt(document.getElementById('slMaxPositionHours').value)
+        };
+        
+        fetch('/api/settings/stop-loss-system', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(formData)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert('Stop Loss sistemi ayarları başarıyla kaydedildi!');
+                location.reload();
+            } else {
+                alert('Hata: ' + data.message);
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Stop Loss sistemi ayarları kaydedilirken hata oluştu!');
+        });
+    });
+
+    // Advanced TP System Form Handler
+    document.getElementById('tpSystemForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const formData = {
+            multiple_tp_enabled: document.getElementById('multipleTpEnabled').checked,
+            tp1_percent: parseFloat(document.getElementById('tp1Percent').value),
+            tp1_quantity_percent: parseFloat(document.getElementById('tp1QuantityPercent').value),
+            tp2_percent: parseFloat(document.getElementById('tp2Percent').value),
+            tp2_quantity_percent: parseFloat(document.getElementById('tp2QuantityPercent').value),
+            tp3_percent: parseFloat(document.getElementById('tp3Percent').value),
+            tp3_quantity_percent: parseFloat(document.getElementById('tp3QuantityPercent').value),
+            trailing_tp_enabled: document.getElementById('trailingTpEnabled').checked,
+            trailing_tp_activation_percent: parseFloat(document.getElementById('trailingTpActivationPercent').value),
+            trailing_tp_callback_percent: parseFloat(document.getElementById('trailingTpCallbackPercent').value),
+            auto_move_sl_to_breakeven: document.getElementById('autoMoveSlToBreakeven').checked,
+            risk_free_after_tp1: document.getElementById('riskFreeAfterTp1').checked,
+            scale_out_enabled: document.getElementById('scaleOutEnabled').checked
+        };
+        
+        fetch('/api/settings/tp-system', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(formData)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert('Take Profit sistemi ayarları başarıyla kaydedildi!');
+                location.reload();
+            } else {
+                alert('Hata: ' + data.message);
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('TP sistemi ayarları kaydedilirken hata oluştu!');
+        });
+    });
+
+    // Toggle visibility functions
+    function toggleStopLoss() {
+        const enabled = document.getElementById('useStopLoss').checked;
+        const div = document.getElementById('stopLossDiv');
+        div.style.display = enabled ? 'block' : 'none';
+    }
+
+    function toggleTrailingStop() {
+        const enabled = document.getElementById('trailingStopEnabled').checked;
+        const div = document.getElementById('trailingStopDiv');
+        div.style.display = enabled ? 'block' : 'none';
+    }
+
+    function togglePercentageSl() {
+        const enabled = document.getElementById('percentageSlEnabled').checked;
+        const div = document.getElementById('percentageSlDiv');
+        div.style.display = enabled ? 'block' : 'none';
+    }
+
+    function toggleAtrSl() {
+        const enabled = document.getElementById('atrSlEnabled').checked;
+        const div = document.getElementById('atrSlDiv');
+        div.style.display = enabled ? 'block' : 'none';
+    }
+
+    function toggleBreakevenSl() {
+        const enabled = document.getElementById('breakevenSlEnabled').checked;
+        const div = document.getElementById('breakevenSlDiv');
+        div.style.display = enabled ? 'block' : 'none';
+    }
+
+    function toggleSlPartialClose() {
+        const enabled = document.getElementById('slPartialClose').checked;
+        const div = document.getElementById('slPartialCloseDiv');
+        div.style.display = enabled ? 'block' : 'none';
+    }
+
+    function toggleSlTimeBasedExit() {
+        const enabled = document.getElementById('slTimeBasedExit').checked;
+        const div = document.getElementById('slTimeBasedExitDiv');
+        div.style.display = enabled ? 'block' : 'none';
+    }
+
+    function toggleDailyLossLimit() {
+        const enabled = document.getElementById('dailyLossLimitEnabled').checked;
+        const div = document.getElementById('dailyLossLimitDiv');
+        div.style.display = enabled ? 'block' : 'none';
+    }
+
+    function toggleMultipleTp() {
+        const enabled = document.getElementById('multipleTpEnabled').checked;
+        const div = document.getElementById('multipleTpDiv');
+        div.style.display = enabled ? 'block' : 'none';
+    }
+
+    function toggleTrailingTp() {
+        const enabled = document.getElementById('trailingTpEnabled').checked;
+        const div = document.getElementById('trailingTpDiv');
+        div.style.display = enabled ? 'block' : 'none';
+    }
+
+    // Add event listeners for toggles
+    document.getElementById('useStopLoss').addEventListener('change', toggleStopLoss);
+    document.getElementById('trailingStopEnabled').addEventListener('change', toggleTrailingStop);
+    document.getElementById('percentageSlEnabled').addEventListener('change', togglePercentageSl);
+    document.getElementById('atrSlEnabled').addEventListener('change', toggleAtrSl);
+    document.getElementById('breakevenSlEnabled').addEventListener('change', toggleBreakevenSl);
+    document.getElementById('slPartialClose').addEventListener('change', toggleSlPartialClose);
+    document.getElementById('slTimeBasedExit').addEventListener('change', toggleSlTimeBasedExit);
+    document.getElementById('dailyLossLimitEnabled').addEventListener('change', toggleDailyLossLimit);
+    document.getElementById('multipleTpEnabled').addEventListener('change', toggleMultipleTp);
+    document.getElementById('trailingTpEnabled').addEventListener('change', toggleTrailingTp);
+    
+    function reduceRisk() {
+        if (confirm('Risk azaltma işlemi bazı pozisyonları kapatabilir. Devam etmek istiyor musunuz?')) {
+            // Implement risk reduction logic
+            fetch('/api/reduce-risk', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        alert('Risk azaltma işlemi tamamlandı!');
+                        location.reload();
+                    } else {
+                        alert('Hata: ' + data.error);
+                    }
+                })
+                .catch(error => {
+                    alert('Risk azaltma işlemi sırasında hata oluştu!');
+                    console.error('Reduce risk error:', error);
+                });
+        }
+    }
+    
+    function emergencyStop() {
+        if (confirm('ACİL DURDURMA! Tüm pozisyonlar kapatılacak. Emin misiniz?')) {
+            fetch('/api/emergency-stop', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        alert('Acil durdurma aktif edildi!');
+                        location.reload();
+                    } else {
+                        alert('Hata: ' + data.error);
+                    }
+                })
+                .catch(error => {
+                    alert('Acil durdurma sırasında hata oluştu!');
+                    console.error('Emergency stop error:', error);
+                });
+        }
+    }
+    
+    function reducePositionSize(positionId) {
+        const newSize = prompt('Yeni pozisyon boyutunu girin (mevcut boyutun yüzdesi):');
+        if (newSize && !isNaN(newSize) && newSize > 0 && newSize < 100) {
+            fetch(`/api/reduce-position-size/${positionId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ size_percentage: parseFloat(newSize) })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('Pozisyon boyutu azaltıldı!');
+                    location.reload();
+                } else {
+                    alert('Hata: ' + data.error);
+                }
+            })
+            .catch(error => {
+                alert('Pozisyon boyutu azaltılırken hata oluştu!');
+                console.error('Reduce position error:', error);
+            });
+        }
+    }
+    
+    function closePosition(positionId) {
+        if (confirm('Bu pozisyonu kapatmak istediğinizden emin misiniz?')) {
+            fetch(`/api/close-position/${positionId}`, { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        alert('Pozisyon kapatıldı!');
+                        location.reload();
+                    } else {
+                        alert('Hata: ' + data.error);
+                    }
+                })
+                .catch(error => {
+                    alert('Pozisyon kapatılırken hata oluştu!');
+                    console.error('Close position error:', error);
+                });
+        }
+    }
+    
+    // Risk Chart
+    const ctx = document.getElementById('riskChart').getContext('2d');
+    const riskChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: ['1h ago', '45m ago', '30m ago', '15m ago', 'Now'],
+            datasets: [{
+                label: 'Risk Oranı (%)',
+                data: [15, 22, 18, 25, {{ risk_percentage }}],
+                borderColor: 'rgb(255, 99, 132)',
+                backgroundColor: 'rgba(255, 99, 132, 0.1)',
+                tension: 0.1
+            }, {
+                label: 'PnL ($)',
+                data: [-50, 20, -10, 30, {{ daily_pnl }}],
+                borderColor: 'rgb(54, 162, 235)',
+                backgroundColor: 'rgba(54, 162, 235, 0.1)',
+                tension: 0.1,
+                yAxisID: 'y1'
+            }]
+        },
+        options: {
+            responsive: true,
+            scales: {
+                y: {
+                    type: 'linear',
+                    display: true,
+                    position: 'left',
+                    title: {
+                        display: true,
+                        text: 'Risk Oranı (%)'
+                    }
+                },
+                y1: {
+                    type: 'linear',
+                    display: true,
+                    position: 'right',
+                    title: {
+                        display: true,
+                        text: 'PnL ($)'
+                    },
+                    grid: {
+                        drawOnChartArea: false,
+                    },
+                }
+            }
+        }
+    });
+    
+    // Auto refresh every 30 seconds
+    setInterval(() => {
+        location.reload();
+    }, 30000);
+</script>
+{% endblock %}

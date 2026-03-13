@@ -1,0 +1,419 @@
+{% extends "base.html" %}
+
+{% block title %}İşlemler - Trading Bot{% endblock %}
+{% block page_title %}İşlem Geçmişi{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <!-- Trade Summary Cards -->
+    <div class="col-md-3 mb-3">
+        <div class="card metric-card">
+            <div class="card-body text-center">
+                <i class="fas fa-exchange-alt fa-2x mb-2"></i>
+                <h5 class="card-title">Toplam İşlem</h5>
+                <h3>{{ trades|length }}</h3>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3 mb-3">
+        <div class="card metric-card">
+            <div class="card-body text-center">
+                <i class="fas fa-check-circle fa-2x mb-2"></i>
+                <h5 class="card-title">Karlı İşlemler</h5>
+                <h3 class="text-success">{{ profitable_count }}</h3>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3 mb-3">
+        <div class="card metric-card">
+            <div class="card-body text-center">
+                <i class="fas fa-times-circle fa-2x mb-2"></i>
+                <h5 class="card-title">Zararlı İşlemler</h5>
+                <h3 class="text-danger">{{ loss_count }}</h3>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3 mb-3">
+        <div class="card metric-card">
+            <div class="card-body text-center">
+                <i class="fas fa-dollar-sign fa-2x mb-2"></i>
+                <h5 class="card-title">Toplam PnL</h5>
+                <h3 class="{{ 'text-success' if total_pnl >= 0 else 'text-danger' }}">
+                    ${{ "%.2f"|format(total_pnl) }}
+                </h3>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Filter Controls -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body">
+                <form id="filterForm" class="row g-3">
+                    <div class="col-md-3">
+                        <label class="form-label">Tarih Aralığı</label>
+                        <select class="form-select" id="dateRange">
+                            <option value="today">Bugün</option>
+                            <option value="week">Bu Hafta</option>
+                            <option value="month" selected>Bu Ay</option>
+                            <option value="all">Tümü</option>
+                        </select>
+                    </div>
+                    
+                    <div class="col-md-3">
+                        <label class="form-label">Symbol</label>
+                        <select class="form-select" id="symbolFilter">
+                            <option value="">Tüm Semboller</option>
+                            {% for symbol in symbols %}
+                                <option value="{{ symbol }}">{{ symbol }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    
+                    <div class="col-md-3">
+                        <label class="form-label">İşlem Tipi</label>
+                        <select class="form-select" id="typeFilter">
+                            <option value="">Tümü</option>
+                            <option value="long">Long</option>
+                            <option value="short">Short</option>
+                        </select>
+                    </div>
+                    
+                    <div class="col-md-3">
+                        <label class="form-label">Durum</label>
+                        <select class="form-select" id="statusFilter">
+                            <option value="">Tümü</option>
+                            <option value="open">Açık</option>
+                            <option value="closed">Kapalı</option>
+                            <option value="error">Hata</option>
+                        </select>
+                    </div>
+                    
+                    <div class="col-12">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-filter"></i> Filtrele
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary" onclick="clearFilters()">
+                            <i class="fas fa-times"></i> Temizle
+                        </button>
+                        <button type="button" class="btn btn-outline-success" onclick="exportTrades()">
+                            <i class="fas fa-download"></i> CSV İndir
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Trades Table -->
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="fas fa-exchange-alt"></i> İşlem Geçmişi
+                </h5>
+                <div>
+                    <button class="btn btn-sm btn-outline-primary" onclick="refreshTrades()">
+                        <i class="fas fa-sync-alt"></i> Yenile
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                {% if trades %}
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead class="table-dark">
+                                <tr>
+                                    <th>Zaman</th>
+                                    <th>Symbol</th>
+                                    <th>Tip</th>
+                                    <th>Miktar</th>
+                                    <th>Giriş Fiyatı</th>
+                                    <th>Çıkış Fiyatı</th>
+                                    <th>Kaldıraç</th>
+                                    <th>PnL (USDT)</th>
+                                    <th>PnL (%)</th>
+                                    <th>Komisyon</th>
+                                    <th>Süre</th>
+                                    <th>Durum</th>
+                                    <th>İşlemler</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for trade in trades %}
+                                <tr id="trade-{{ trade.id }}">
+                                    <td>
+                                        <small>{{ trade.opened_at.strftime('%d/%m %H:%M:%S') if trade.opened_at else '-' }}</small>
+                                    </td>
+                                    <td>
+                                        <strong>{{ trade.symbol }}</strong>
+                                    </td>
+                                    <td>
+                                        {% if trade.trade_type.value == 'long' %}
+                                            <span class="badge bg-success fs-6">
+                                                <i class="fas fa-arrow-up"></i> LONG
+                                            </span>
+                                        {% else %}
+                                            <span class="badge bg-danger fs-6">
+                                                <i class="fas fa-arrow-down"></i> SHORT
+                                            </span>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ "%.4f"|format(trade.quantity) }}</td>
+                                    <td>
+                                        {% if trade.entry_price %}
+                                            ${{ "%.4f"|format(trade.entry_price) }}
+                                        {% else %}
+                                            <span class="text-muted">-</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if trade.exit_price %}
+                                            ${{ "%.4f"|format(trade.exit_price) }}
+                                        {% else %}
+                                            <span class="text-muted">-</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ trade.leverage }}x</td>
+                                    <td>
+                                        {% if trade.net_pnl %}
+                                            <span class="{{ 'text-success' if trade.net_pnl >= 0 else 'text-danger' }}">
+                                                ${{ "%.2f"|format(trade.net_pnl) }}
+                                            </span>
+                                        {% else %}
+                                            <span class="text-muted">-</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if trade.pnl_percentage %}
+                                            <span class="{{ 'text-success' if trade.pnl_percentage >= 0 else 'text-danger' }}">
+                                                {{ "%.2f"|format(trade.pnl_percentage) }}%
+                                            </span>
+                                        {% else %}
+                                            <span class="text-muted">-</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if trade.commission %}
+                                            ${{ "%.4f"|format(trade.commission) }}
+                                        {% else %}
+                                            <span class="text-muted">-</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if trade.opened_at and trade.closed_at %}
+                                            {% set duration = trade.closed_at - trade.opened_at %}
+                                            {% if duration.total_seconds() < 3600 %}
+                                                {{ "%.0f"|format(duration.total_seconds() / 60) }}m
+                                            {% else %}
+                                                {{ "%.1f"|format(duration.total_seconds() / 3600) }}h
+                                            {% endif %}
+                                        {% else %}
+                                            <span class="text-muted">-</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if trade.status.value == 'open' %}
+                                            <span class="badge bg-primary">Açık</span>
+                                        {% elif trade.status.value == 'closed' %}
+                                            <span class="badge bg-success">Kapalı</span>
+                                        {% elif trade.status.value == 'pending' %}
+                                            <span class="badge bg-warning">Bekliyor</span>
+                                        {% elif trade.status.value == 'error' %}
+                                            <span class="badge bg-danger">Hata</span>
+                                        {% else %}
+                                            <span class="badge bg-secondary">{{ trade.status.value }}</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <div class="btn-group btn-group-sm" role="group">
+                                            <button class="btn btn-outline-info" onclick="viewTradeDetails({{ trade.id }})" title="Detaylar">
+                                                <i class="fas fa-eye"></i>
+                                            </button>
+                                            {% if trade.status.value == 'open' %}
+                                                <button class="btn btn-outline-danger" onclick="closeTrade({{ trade.id }})" title="Kapat">
+                                                    <i class="fas fa-times"></i>
+                                                </button>
+                                            {% endif %}
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="text-center text-muted py-5">
+                        <i class="fas fa-exchange-alt fa-4x mb-3 opacity-50"></i>
+                        <h4>Henüz İşlem Yok</h4>
+                        <p class="mb-4">Henüz hiç işlem gerçekleştirilmedi. TradingView sinyalleri geldiğinde otomatik olarak işlemler başlayacak.</p>
+                        <div class="d-flex justify-content-center gap-2">
+                            <a href="{{ url_for('web.dashboard') }}" class="btn btn-primary">
+                                <i class="fas fa-tachometer-alt"></i> Dashboard'a Dön
+                            </a>
+                            <a href="{{ url_for('web.signals') }}" class="btn btn-outline-primary">
+                                <i class="fas fa-satellite-dish"></i> Sinyalleri Görüntüle
+                            </a>
+                        </div>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Trade Details Modal -->
+<div class="modal fade" id="tradeDetailsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">İşlem Detayları</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="tradeDetailsContent">
+                    <!-- Trade details will be loaded here -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Kapat</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function refreshTrades() {
+        location.reload();
+    }
+    
+    function clearFilters() {
+        document.getElementById('filterForm').reset();
+        location.reload();
+    }
+    
+    function exportTrades() {
+        const params = new URLSearchParams();
+        params.append('dateRange', document.getElementById('dateRange').value);
+        params.append('symbol', document.getElementById('symbolFilter').value);
+        params.append('type', document.getElementById('typeFilter').value);
+        params.append('status', document.getElementById('statusFilter').value);
+        
+        window.open(`/api/export-trades?${params.toString()}`, '_blank');
+    }
+    
+    function viewTradeDetails(tradeId) {
+        fetch(`/api/trade/${tradeId}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    const trade = data.trade;
+                    const content = `
+                        <div class="row">
+                            <div class="col-md-6">
+                                <h6>Temel Bilgiler</h6>
+                                <table class="table table-sm">
+                                    <tr><td><strong>ID:</strong></td><td>${trade.id}</td></tr>
+                                    <tr><td><strong>Symbol:</strong></td><td>${trade.symbol}</td></tr>
+                                    <tr><td><strong>Tip:</strong></td><td>${trade.trade_type}</td></tr>
+                                    <tr><td><strong>Miktar:</strong></td><td>${trade.quantity}</td></tr>
+                                    <tr><td><strong>Kaldıraç:</strong></td><td>${trade.leverage}x</td></tr>
+                                    <tr><td><strong>Durum:</strong></td><td>${trade.status}</td></tr>
+                                </table>
+                            </div>
+                            <div class="col-md-6">
+                                <h6>Fiyat Bilgileri</h6>
+                                <table class="table table-sm">
+                                    <tr><td><strong>Giriş Fiyatı:</strong></td><td>$${trade.entry_price || '-'}</td></tr>
+                                    <tr><td><strong>Çıkış Fiyatı:</strong></td><td>$${trade.exit_price || '-'}</td></tr>
+                                    <tr><td><strong>Stop Loss:</strong></td><td>$${trade.stop_loss || '-'}</td></tr>
+                                    <tr><td><strong>Take Profit:</strong></td><td>$${trade.take_profit || '-'}</td></tr>
+                                    <tr><td><strong>PnL:</strong></td><td>$${trade.net_pnl || '-'}</td></tr>
+                                    <tr><td><strong>Komisyon:</strong></td><td>$${trade.commission || '-'}</td></tr>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="row mt-3">
+                            <div class="col-12">
+                                <h6>Zaman Bilgileri</h6>
+                                <table class="table table-sm">
+                                    <tr><td><strong>Açılış:</strong></td><td>${trade.opened_at || '-'}</td></tr>
+                                    <tr><td><strong>Kapanış:</strong></td><td>${trade.closed_at || '-'}</td></tr>
+                                    <tr><td><strong>Oluşturulma:</strong></td><td>${trade.created_at || '-'}</td></tr>
+                                </table>
+                            </div>
+                        </div>
+                        ${trade.binance_order_id ? `
+                            <div class="row mt-3">
+                                <div class="col-12">
+                                    <h6>Binance Bilgileri</h6>
+                                    <table class="table table-sm">
+                                        <tr><td><strong>Order ID:</strong></td><td>${trade.binance_order_id}</td></tr>
+                                    </table>
+                                </div>
+                            </div>
+                        ` : ''}
+                        ${trade.error_message ? `
+                            <div class="row mt-3">
+                                <div class="col-12">
+                                    <h6>Hata Mesajı</h6>
+                                    <div class="alert alert-danger">${trade.error_message}</div>
+                                </div>
+                            </div>
+                        ` : ''}
+                    `;
+                    
+                    document.getElementById('tradeDetailsContent').innerHTML = content;
+                    new bootstrap.Modal(document.getElementById('tradeDetailsModal')).show();
+                } else {
+                    alert('İşlem detayları alınamadı: ' + data.error);
+                }
+            })
+            .catch(error => {
+                alert('İşlem detayları alınırken hata oluştu!');
+                console.error('Trade details error:', error);
+            });
+    }
+    
+    function closeTrade(tradeId) {
+        if (confirm('Bu işlemi kapatmak istediğinizden emin misiniz?')) {
+            fetch(`/api/close-trade/${tradeId}`, { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        alert('İşlem kapatıldı!');
+                        location.reload();
+                    } else {
+                        alert('Hata: ' + data.error);
+                    }
+                })
+                .catch(error => {
+                    alert('İşlem kapatılırken hata oluştu!');
+                    console.error('Close trade error:', error);
+                });
+        }
+    }
+    
+    // Filter form submission
+    document.getElementById('filterForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const params = new URLSearchParams();
+        params.append('dateRange', document.getElementById('dateRange').value);
+        params.append('symbol', document.getElementById('symbolFilter').value);
+        params.append('type', document.getElementById('typeFilter').value);
+        params.append('status', document.getElementById('statusFilter').value);
+        
+        window.location.href = `/trades?${params.toString()}`;
+    });
+</script>
+{% endblock %}
